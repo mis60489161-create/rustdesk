@@ -1,0 +1,77 @@
+name: Build Custom RustDesk Windows
+
+on:
+  workflow_dispatch: # 支持在 GitHub Actions 頁面手動點擊按鈕觸發編譯
+
+jobs:
+  build:
+    name: Build Windows Client
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # 必須自動拉取子模組
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Set up Vcpkg & Dependencies
+        run: |
+          # 整合 vcpkg 環境
+          vcpkg integrate install
+          # 根據 RustDesk 官方要求，安裝編譯所需要的依賴庫
+          vcpkg install libvpx:x86_64-windows libyuv:x86_64-windows opus:x86_64-windows aom:x86_64-windows
+
+      - name: Setup Flutter (If needed for modern UI)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          architecture: x64
+
+      - name: Inject Custom Server Configuration
+        shell: bash
+        run: |
+          echo "==== 開始注入自建伺服器資訊 ===="
+          ID_SERVER="${{ secrets.CUSTOM_ID_SERVER }}"
+          RELAY_SERVER="${{ secrets.CUSTOM_RELAY_SERVER }}"
+          PUB_KEY="${{ secrets.CUSTOM_PUB_KEY }}"
+          
+          # 自動尋找程式碼中的設定檔並進行強行替換（相容最新版多模組架構）
+          # 1. 替換預設的 rendezvous 伺服器
+          find . -name "config.rs" -exec sed -i "s/rendezvous_server\.rustdesk\.com/$ID_SERVER/g" {} +
+          find . -name "config.rs" -exec sed -i "s/router\.rustdesk\.com/$RELAY_SERVER/g" {} +
+          
+          # 2. 替換內置公鑰 (判斷最新版程式碼結構中的 Key 佔位符並替換)
+          find . -name "config.rs" -exec sed -i "s/d25519_key_placeholder/$PUB_KEY/g" {} +
+          
+          echo "==== 伺服器資訊注入完成 ===="
+
+      - name: Fetch Flutter Dependencies
+        run: |
+          cd flutter
+          flutter pub get
+          cd ..
+
+      - name: Pre-build & Generate Code
+        run: |
+          # 執行 RustDesk 編譯前的腳本（如 bridge 程式碼生成）
+          cargo install cargo-bundle
+          # 根據官方最新架構生成相關 binding
+
+      - name: Build Release EXE
+        run: |
+          # 使用 Release 模式編譯 Rust 底層與 Flutter 殼
+          cd flutter
+          flutter build windows --release
+          cd ..
+
+      - name: Archive and Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustDesk-Custom-Windows-x64
+          path: |
+            flutter/build/windows/runner/Release/
