@@ -21,10 +21,12 @@ jobs:
 
       - name: Set up Vcpkg & Dependencies
         run: |
-          # 整合 vcpkg 環境
+          # 1. 整合 vcpkg 環境
           vcpkg integrate install
-          # 根據 RustDesk 官方要求，安裝編譯所需要的依賴庫
-          vcpkg install libvpx:x86_64-windows libyuv:x86_64-windows opus:x86_64-windows aom:x86_64-windows
+          
+          # 2. 使用清單模式自動安裝 RustDesk 所需的所有依賴（不帶套件名稱參數）
+          # 同時指定目標平台為 x64-windows
+          vcpkg install --triplet x64-windows
 
       - name: Setup Flutter (If needed for modern UI)
         uses: subosito/flutter-action@v2
