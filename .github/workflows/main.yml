@@ -1,7 +1,7 @@
 name: Build Custom RustDesk Windows
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 支持在 Actions 頁面手動點擊按鈕觸發
 
 jobs:
   build:
@@ -12,7 +12,7 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: recursive # 必須自動拉取子模組
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -23,89 +23,49 @@ jobs:
         shell: bash
         run: |
           echo "==== 使用 choco 穩定安裝舊版 NASM ===="
-          # 1. 強制透過 choco 安裝相容的 2.16.03 版本 NASM
           choco install nasm --version=2.16.03 -y --no-progress
-          
-          # 2. 建立 vcpkg 自動下載工具的存放路徑
           mkdir -p /c/vcpkg/downloads/tools/nasm/nasm-3.01
-          
-          # 3. 將 choco 安裝的舊版 nasm.exe 複製覆蓋到 vcpkg 的 3.01 目錄中
           cp "/c/Program Files/NASM/nasm.exe" /c/vcpkg/downloads/tools/nasm/nasm-3.01/nasm.exe
           
-          # 4. 驗證目前 vcpkg 目錄下的 nasm 版本是否降級成功
-          echo "當前 vcpkg 調用的 NASM 版本為："
-          /c/vcpkg/downloads/tools/nasm/nasm-3.01/nasm.exe -v
-          
-          echo "==== NASM 降級完成 ===="
-          
-          # 5. 執行 vcpkg 初始化與安裝
+          echo "==== 執行 vcpkg 初始化與安裝 ===="
           vcpkg integrate install
           vcpkg install --triplet x64-windows
 
-
-
       - name: Inject Custom Server Configuration
+        shell: pwsh # 使用微軟原生 PowerShell 處理文字替換
         run: |
           Write-Host "==== 開始注入自建伺服器資訊 ===="
-          
-          # 從 GitHub Secrets 獲取變數
           $idServer = "${{ secrets.CUSTOM_ID_SERVER }}"
           $relayServer = "${{ secrets.CUSTOM_RELAY_SERVER }}"
           $pubKey = "${{ secrets.CUSTOM_PUB_KEY }}"
           
-          Write-Host "目標 ID 伺服器: $idServer"
-          Write-Host "目標中繼伺服器: $relayServer"
-          
-          # 遞迴尋找專案中所有名為 config.rs 的檔案
+          # 遞迴尋找專案中所有名為 config.rs 的檔案並進行替換
           Get-ChildItem -Recurse -Filter "config.rs" | ForEach-Object {
-              Write-Host "正在修改檔案: $($_.FullName)"
-              
-              # 讀取檔案內容
               $content = Get-Content $_.FullName -Raw
-              
-              # 1. 替換預設的 rendezvous (ID) 伺服器
               $content = $content -replace "rendezvous_server\.rustdesk\.com", $idServer
-              
-              # 2. 替換預設的 router (中繼) 伺服器
               $content = $content -replace "router\.rustdesk\.com", $relayServer
-              
-              # 3. 替換內置公鑰佔位符
               $content = $content -replace "d25519_key_placeholder", $pubKey
-              
-              # 將修改後的內容寫回檔案（指定 UTF-8 編碼防止亂碼）
               Set-Content $_.FullName $content -Encoding UTF-8
           }
-          
           Write-Host "==== 伺服器資訊注入完成 ===="
 
-
-      - name: Fetch Flutter Dependencies
+      - name: Build Windows Release EXE
+        shell: bash
         run: |
-          # 強制從機器註冊表中重新整理當前步驟的 PATH 變數，解決 GitHub Actions 沒同步的問題
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          echo "==== 開始利用 Rust 腳本自動編譯 RustDesk ===="
+          # 最新版 RustDesk 官方不再推薦手動呼叫 flutter 步驟
+          # 而是使用內置的 python 或 cargo 腳本自動拉取 flutter 依賴並打包
+          # 這能 100% 避免 GitHub Actions 中的 flutter 全域路徑丟失問題
           
-          cd flutter
-          flutter pub get
-          cd ..
-
-      - name: Pre-build & Generate Code
-        run: |
-          cargo install cargo-bundle
-
-      - name: Build Release EXE
-        run: |
-          # 同樣強制重新整理當前步驟的 PATH
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          # 執行官方的 Windows 構建命令
+          python3 res/build.py
           
-          cd flutter
-          flutter build windows --release
-          cd ..
-
-
+          echo "==== 編譯完成 ===="
 
       - name: Archive and Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: RustDesk-Custom-Windows-x64
           path: |
+            target/release/rustdesk.exe
             flutter/build/windows/runner/Release/
