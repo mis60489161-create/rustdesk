@@ -44,25 +44,40 @@ jobs:
 
 
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          architecture: x64
-
       - name: Inject Custom Server Configuration
-        shell: bash
         run: |
-          echo "==== 開始注入自建伺服器資訊 ===="
-          ID_SERVER="${{ secrets.CUSTOM_ID_SERVER }}"
-          RELAY_SERVER="${{ secrets.CUSTOM_RELAY_SERVER }}"
-          PUB_KEY="${{ secrets.CUSTOM_PUB_KEY }}"
+          Write-Host "==== 開始注入自建伺服器資訊 ===="
           
-          find . -name "config.rs" -exec sed -i "s/rendezvous_server\.rustdesk\.com/$ID_SERVER/g" {} +
-          find . -name "router\.rustdesk\.com/$RELAY_SERVER/g" {} +
-          find . -name "config.rs" -exec sed -i "s/d25519_key_placeholder/$PUB_KEY/g" {} +
+          # 從 GitHub Secrets 獲取變數
+          $idServer = "${{ secrets.CUSTOM_ID_SERVER }}"
+          $relayServer = "${{ secrets.CUSTOM_RELAY_SERVER }}"
+          $pubKey = "${{ secrets.CUSTOM_PUB_KEY }}"
           
-          echo "==== 伺服器資訊注入完成 ===="
+          Write-Host "目標 ID 伺服器: $idServer"
+          Write-Host "目標中繼伺服器: $relayServer"
+          
+          # 遞迴尋找專案中所有名為 config.rs 的檔案
+          Get-ChildItem -Recurse -Filter "config.rs" | ForEach-Object {
+              Write-Host "正在修改檔案: $($_.FullName)"
+              
+              # 讀取檔案內容
+              $content = Get-Content $_.FullName -Raw
+              
+              # 1. 替換預設的 rendezvous (ID) 伺服器
+              $content = $content -replace "rendezvous_server\.rustdesk\.com", $idServer
+              
+              # 2. 替換預設的 router (中繼) 伺服器
+              $content = $content -replace "router\.rustdesk\.com", $relayServer
+              
+              # 3. 替換內置公鑰佔位符
+              $content = $content -replace "d25519_key_placeholder", $pubKey
+              
+              # 將修改後的內容寫回檔案（指定 UTF-8 編碼防止亂碼）
+              Set-Content $_.FullName $content -Encoding UTF-8
+          }
+          
+          Write-Host "==== 伺服器資訊注入完成 ===="
+
 
       - name: Fetch Flutter Dependencies
         run: |
