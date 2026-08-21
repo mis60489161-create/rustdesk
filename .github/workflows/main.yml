@@ -1,0 +1,84 @@
+name: Build Custom RustDesk Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows Client
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Set up Vcpkg & Dependencies
+        shell: bash # 使用 bash 方便在 Windows 上執行下載與覆蓋
+        run: |
+          echo "==== 開始降級 NASM 以修復 aom 編譯錯誤 ===="
+          # 1. 建立 vcpkg 自動下載工具的存放路徑
+          mkdir -p /c/vcpkg/downloads/tools/nasm/nasm-3.01
+          
+          # 2. 下載穩定的舊版 NASM 二進位檔案
+          curl -L -o nasm.zip https://nasm.us
+          
+          # 3. 解壓並強行覆蓋 vcpkg 預期呼叫的 nasm.exe 路徑
+          unzip -o nasm.zip
+          cp nasm-2.16.03/nasm.exe /c/vcpkg/downloads/tools/nasm/nasm-3.01/nasm.exe
+          
+          echo "==== NASM 降級完成 ===="
+          
+          # 4. 照常執行 vcpkg 初始化與安裝
+          vcpkg integrate install
+          vcpkg install --triplet x64-windows
+
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          architecture: x64
+
+      - name: Inject Custom Server Configuration
+        shell: bash
+        run: |
+          echo "==== 開始注入自建伺服器資訊 ===="
+          ID_SERVER="${{ secrets.CUSTOM_ID_SERVER }}"
+          RELAY_SERVER="${{ secrets.CUSTOM_RELAY_SERVER }}"
+          PUB_KEY="${{ secrets.CUSTOM_PUB_KEY }}"
+          
+          find . -name "config.rs" -exec sed -i "s/rendezvous_server\.rustdesk\.com/$ID_SERVER/g" {} +
+          find . -name "router\.rustdesk\.com/$RELAY_SERVER/g" {} +
+          find . -name "config.rs" -exec sed -i "s/d25519_key_placeholder/$PUB_KEY/g" {} +
+          
+          echo "==== 伺服器資訊注入完成 ===="
+
+      - name: Fetch Flutter Dependencies
+        run: |
+          cd flutter
+          flutter pub get
+          cd ..
+
+      - name: Pre-build & Generate Code
+        run: |
+          cargo install cargo-bundle
+
+      - name: Build Release EXE
+        run: |
+          cd flutter
+          flutter build windows --release
+          cd ..
+
+      - name: Archive and Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustDesk-Custom-Windows-x64
+          path: |
+            flutter/build/windows/runner/Release/
