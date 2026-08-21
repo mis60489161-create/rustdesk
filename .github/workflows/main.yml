@@ -81,19 +81,28 @@ jobs:
 
       - name: Fetch Flutter Dependencies
         run: |
+          # 調用特定環境變量下的 flutter 二進位路徑，確保 100% 能識別
+          $flutter_path = "$env:FLUTTER_HOME\bin\flutter.bat"
+          Write-Host "使用 Flutter 路徑: $flutter_path"
+          
           cd flutter
-          flutter pub get
+          & $flutter_path pub get
           cd ..
 
       - name: Pre-build & Generate Code
         run: |
+          # 建立必要的 Rust 與 Flutter 橋接代碼
           cargo install cargo-bundle
 
       - name: Build Release EXE
         run: |
+          $flutter_path = "$env:FLUTTER_HOME\bin\flutter.bat"
+          
           cd flutter
-          flutter build windows --release
+          # 使用強設定模式編譯 Windows 端
+          & $flutter_path build windows --release
           cd ..
+
 
       - name: Archive and Upload Build Artifact
         uses: actions/upload-artifact@v4
