@@ -20,24 +20,28 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Set up Vcpkg & Dependencies
-        shell: bash # 使用 bash 方便在 Windows 上執行下載與覆蓋
+        shell: bash
         run: |
-          echo "==== 開始降級 NASM 以修復 aom 編譯錯誤 ===="
-          # 1. 建立 vcpkg 自動下載工具的存放路徑
+          echo "==== 使用 choco 穩定安裝舊版 NASM ===="
+          # 1. 強制透過 choco 安裝相容的 2.16.03 版本 NASM
+          choco install nasm --version=2.16.03 -y --no-progress
+          
+          # 2. 建立 vcpkg 自動下載工具的存放路徑
           mkdir -p /c/vcpkg/downloads/tools/nasm/nasm-3.01
           
-          # 2. 下載穩定的舊版 NASM 二進位檔案
-          curl -L -o nasm.zip https://nasm.us
+          # 3. 將 choco 安裝的舊版 nasm.exe 複製覆蓋到 vcpkg 的 3.01 目錄中
+          cp "/c/Program Files/NASM/nasm.exe" /c/vcpkg/downloads/tools/nasm/nasm-3.01/nasm.exe
           
-          # 3. 解壓並強行覆蓋 vcpkg 預期呼叫的 nasm.exe 路徑
-          unzip -o nasm.zip
-          cp nasm-2.16.03/nasm.exe /c/vcpkg/downloads/tools/nasm/nasm-3.01/nasm.exe
+          # 4. 驗證目前 vcpkg 目錄下的 nasm 版本是否降級成功
+          echo "當前 vcpkg 調用的 NASM 版本為："
+          /c/vcpkg/downloads/tools/nasm/nasm-3.01/nasm.exe -v
           
           echo "==== NASM 降級完成 ===="
           
-          # 4. 照常執行 vcpkg 初始化與安裝
+          # 5. 執行 vcpkg 初始化與安裝
           vcpkg integrate install
           vcpkg install --triplet x64-windows
+
 
 
       - name: Setup Flutter
